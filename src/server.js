@@ -11,6 +11,7 @@ const assets = new Map([
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/icon.svg', ['icon.svg', 'image/svg+xml']],
+  ['/fonts/InterVariable.woff2', ['fonts/InterVariable.woff2', 'font/woff2']],
 ]);
 const publicRoot = new URL('../public/', import.meta.url);
 

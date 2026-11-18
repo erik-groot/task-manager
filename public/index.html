@@ -1,13 +1,14 @@
 <!doctype html>
-<html lang="en" data-theme="clear">
+<html lang="en" data-theme="frost">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#e5eaf4">
+  <meta name="theme-color" content="#f6f7f4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Task Manager</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" type="module"></script>
 </head>
@@ -27,6 +28,9 @@
     <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
     <symbol id="i-group" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6h1m-1 6h1m-1 6h1"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4c5-4 9 4 14 0v10c-5 4-9-4-14 0"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
     <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5v16h5m-1-8h12m-4-4 4 4-4 4"/></symbol>
   </defs></svg>
   <div id="notice" class="notice" role="alert" hidden></div>
@@ -35,24 +39,35 @@
     <h1>Tasks</h1>
     <form id="login-form"><label for="password">Passphrase</label><input id="password" type="password" autocomplete="current-password" required><button type="submit" class="primary">Sign in</button></form>
   </main>
-  <div id="app-view" class="app-window glass" hidden>
+  <div id="app-view" class="app-window" hidden>
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="Task Manager"><span class="app-icon"><svg><use href="#i-check"/></svg></span><span>Tasks</span></a>
       <nav id="navigation" aria-label="Task sections"></nav>
       <div class="sidebar-bottom"><button id="completed-view" class="nav-item" data-section="completed"><svg><use href="#i-check"/></svg><span>Completed</span><span class="nav-count" id="completed-count">0</span></button></div>
     </aside>
     <main class="workspace">
-      <header class="topbar"><span id="workspace-date"></span><div class="appearance" role="group" aria-label="Appearance"><button data-theme="clear" aria-pressed="true">Clear</button><button data-theme="frost" aria-pressed="false">Frost</button><button data-theme="midnight" aria-pressed="false">Midnight</button></div><button id="logout" class="icon-button" aria-label="Sign out" title="Sign out" hidden><svg><use href="#i-logout"/></svg></button><span id="connection" class="connection" role="status" aria-label="Connecting" title="Connecting"></span></header>
-      <div class="heading"><div class="heading-title"><h1 id="view-title">Today</h1><span id="view-count" class="heading-count">0</span></div><button id="review-start" class="review-button"><svg><use href="#i-review"/></svg><span>Review</span><span id="review-count" class="review-count">0</span></button></div>
-      <form id="quick-form" class="quick-add"><svg><use href="#i-plus"/></svg><label class="sr-only" for="quick-title">New task</label><input id="quick-title" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" autocomplete="off" maxlength="300" placeholder="Add a task… @customer !priority #type"><button class="icon-button" id="quick-details" type="button" aria-label="New task details" title="New task details"><svg><use href="#i-arrow"/></svg></button><div id="quick-tokens" class="token-row" hidden></div></form>
-      <div class="list-toolbar"><label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" aria-label="Search tasks" placeholder="Search" autocomplete="off"></label><label class="group-control"><svg><use href="#i-group"/></svg><span class="sr-only">Group by</span><select id="group-by" aria-label="Group by"><option value="none">No grouping</option><option value="customer">Customer</option><option value="priority">Priority</option><option value="type">Type</option></select></label></div>
+      <header class="topbar">
+        <button id="mobile-lists-top" class="mobile-brand" aria-label="Choose task list" aria-haspopup="dialog"><svg><use href="#i-grid"/></svg><span>Tasks</span><svg class="chevron"><use href="#i-chevron"/></svg></button>
+        <span id="workspace-date"></span>
+        <div class="topbar-actions"><span id="connection" class="connection" role="status" aria-label="Connecting" title="Connecting"></span>
+          <details id="preferences" class="preferences"><summary class="icon-button" aria-label="Appearance" title="Appearance"><svg><use href="#i-settings"/></svg></summary><div class="preferences-panel glass"><span class="menu-label">Appearance</span><div class="appearance" role="group" aria-label="Appearance"><button data-theme="clear" aria-pressed="false">Clear</button><button data-theme="frost" aria-pressed="true">Frost</button><button data-theme="midnight" aria-pressed="false">Midnight</button></div><button id="logout" class="quiet" hidden><svg><use href="#i-logout"/></svg>Sign out</button></div></details>
+        </div>
+      </header>
+      <div class="heading"><div class="heading-title"><h1 id="view-title">Today</h1><span id="view-count" class="heading-count">0</span></div><button id="search-toggle" class="icon-button mobile-search" aria-label="Search tasks" aria-expanded="false" aria-controls="search-field"><svg><use href="#i-search"/></svg></button><button id="review-start" class="review-button"><svg><use href="#i-review"/></svg><span>Review</span><span id="review-count" class="review-count">0</span></button></div>
+      <form id="quick-form" class="quick-add"><svg><use href="#i-plus"/></svg><label class="sr-only" for="quick-title">New task</label><input id="quick-title" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" autocomplete="off" maxlength="300" placeholder="Add a task…"><button class="icon-button" id="quick-details" type="button" aria-label="New task details" title="New task details"><svg><use href="#i-arrow"/></svg></button><div id="quick-tokens" class="token-row" hidden></div></form>
+      <div class="list-toolbar"><label class="search" id="search-field"><svg><use href="#i-search"/></svg><input id="search" type="search" aria-label="Search tasks" placeholder="Search" autocomplete="off"></label><label class="group-control"><svg><use href="#i-group"/></svg><span class="sr-only">Group by</span><select id="group-by" aria-label="Group by"><option value="none">No grouping</option><option value="customer">Customer</option><option value="priority">Priority</option><option value="type">Type</option></select></label></div>
       <section id="task-list" aria-label="Tasks" class="task-list"></section>
       <div id="empty" class="empty" hidden><svg><use href="#i-check"/></svg><span id="empty-label">No tasks</span></div>
       <div class="keyboard-bar" aria-label="Move selected task"><span id="selection-label">Move task</span><div id="move-buttons"></div></div>
     </main>
+    <nav class="mobile-dock" aria-label="Main navigation">
+      <div class="dock-tabs glass"><button id="mobile-lists" aria-haspopup="dialog" aria-expanded="false" aria-controls="lists-dialog"><svg><use href="#i-grid"/></svg><span>Lists</span></button><button id="mobile-today" data-section="today"><svg><use href="#i-sun"/></svg><span>Today</span></button><button id="mobile-review"><span class="dock-icon"><svg><use href="#i-review"/></svg><span id="mobile-review-count" class="dock-badge">0</span></span><span>Review</span></button></div>
+      <button id="mobile-add" class="dock-add glass" aria-label="New task"><svg><use href="#i-plus"/></svg></button>
+    </nav>
   </div>
-  <dialog id="task-dialog" class="glass editor" tabindex="-1" aria-labelledby="dialog-title">
-    <form id="task-form"><header class="modal-header"><h2 id="dialog-title">New task</h2><button type="button" id="close-editor" class="icon-button" aria-label="Close task"><svg><use href="#i-close"/></svg></button></header>
+  <dialog id="lists-dialog" class="list-sheet" aria-labelledby="lists-title"><span class="sheet-handle" aria-hidden="true"></span><header class="modal-header"><h2 id="lists-title">Lists</h2><button id="lists-close" class="icon-button" aria-label="Close lists"><svg><use href="#i-close"/></svg></button></header><div id="mobile-sections"></div></dialog>
+  <dialog id="task-dialog" class="editor" tabindex="-1" aria-labelledby="dialog-title">
+    <span class="sheet-handle" aria-hidden="true"></span><form id="task-form"><header class="modal-header"><h2 id="dialog-title">New task</h2><button type="button" id="close-editor" class="icon-button" aria-label="Close task"><svg><use href="#i-close"/></svg></button></header>
       <p id="editor-error" class="inline-error" role="alert" hidden></p>
       <label class="sr-only" for="task-title">Title</label><input id="task-title" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" name="title" class="editor-title" placeholder="Task" maxlength="200" autocomplete="off" required>
       <label class="sr-only" for="task-notes">Notes</label><textarea id="task-notes" name="notes" rows="3" maxlength="4000" placeholder="Notes"></textarea>
@@ -60,7 +75,7 @@
       <div id="editor-moves" class="editor-moves" aria-label="Schedule task"></div><div class="editor-actions"><button id="delete-task" type="button" class="danger" hidden>Delete</button><button id="save-task" type="submit" class="primary">Save</button></div>
     </form>
   </dialog>
-  <dialog id="review-dialog" class="glass review-modal" tabindex="-1" aria-labelledby="review-title"><header class="modal-header"><span id="review-progress">Review</span><button id="review-close" class="icon-button" aria-label="Close review"><svg><use href="#i-close"/></svg></button></header><div class="progress-track"><div id="review-progress-fill"></div></div><div id="review-card"><span id="review-section" class="review-section"></span><h2 id="review-title"></h2><p id="review-notes"></p><div id="review-meta" class="token-row"></div></div><p id="review-message" role="status" hidden></p><div id="review-actions" class="review-actions"></div><footer class="review-footer"><button id="review-backlog" class="quiet" title="Keep in backlog (6)">Backlog <kbd>6</kbd></button><button id="review-later" class="quiet" title="Move to Later (5)">Later <kbd>5</kbd></button><button id="review-skip" class="quiet" title="Skip (right arrow)">Skip <svg><use href="#i-arrow"/></svg></button></footer><button id="review-done" class="primary" hidden>Done</button><button id="review-retry" class="primary" hidden>Retry</button></dialog>
+  <dialog id="review-dialog" class="review-modal" tabindex="-1" aria-labelledby="review-title"><span class="sheet-handle" aria-hidden="true"></span><header class="modal-header"><span id="review-progress">Review</span><button id="review-close" class="icon-button" aria-label="Close review"><svg><use href="#i-close"/></svg></button></header><div class="progress-track"><div id="review-progress-fill"></div></div><div id="review-card"><span id="review-section" class="review-section"></span><h2 id="review-title"></h2><p id="review-notes"></p><div id="review-meta" class="token-row"></div></div><p id="review-message" role="status" hidden></p><div id="review-actions" class="review-actions"></div><footer class="review-footer"><button id="review-backlog" class="quiet" title="Keep in backlog (6)">Backlog <kbd>6</kbd></button><button id="review-later" class="quiet" title="Move to Later (5)">Later <kbd>5</kbd></button><button id="review-skip" class="quiet" title="Skip (right arrow)">Skip <svg><use href="#i-arrow"/></svg></button></footer><button id="review-done" class="primary" hidden>Done</button><button id="review-retry" class="primary" hidden>Retry</button></dialog>
   <div id="suggestions" class="suggestions glass" role="listbox" aria-label="Task options" hidden></div>
   <datalist id="customer-list"></datalist>
   <div id="toast" class="toast glass" role="status" hidden></div>

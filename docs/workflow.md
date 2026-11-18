@@ -17,7 +17,7 @@ Later is an undated holding section; Backlog is an undated inbox. Both are inclu
 
 ## Capture and grouping
 
-Type a task in the composer. Use these prefixes in the composer or task title:
+On desktop, type a task in the composer. On a phone, tap the floating Add button. Use these prefixes in the composer or task title:
 
 - `@`: select an existing customer or type a new name and select Create.
 - `!`: select Low, Medium, or High.
@@ -27,13 +27,15 @@ Use Up/Down and Enter or Tab to choose a suggestion. Escape dismisses suggestion
 
 Choose Customer, Priority, or Type in the grouping control. Your grouping and appearance preferences are remembered on that browser; task data lives in the shared database.
 
+Phone navigation is in the bottom dock: Lists opens every section, Today returns to today's tasks, and Review starts processing undated tasks. The search button expands a search field; Escape dismisses it when using a keyboard. Appearance is in the settings control. Priority flags and waiting clocks sit beside task titles; open a task for its full metadata.
+
 ## Move and review
 
 Click the empty area of a task row or use Up/Down to select a task, then press `1`–`4` to move it. Click its title or press Enter on the selected row to open it. When the editor has focus outside a text field, the same number keys schedule and save it. Digits typed in title, notes, customer, or other form controls stay ordinary input. The visible schedule buttons work on touch devices too.
 
 Press `R` or click Review to open a snapshot of all incomplete, undated tasks, oldest first. Press `1`, `2`, `3`, or `4` to assign the visible task and immediately see the next one. Rapid sequences queue writes without dropping assignments. Use `5` for Later, `6` for Backlog, Right Arrow to skip, and Escape to close. Completed and already dated tasks are excluded.
 
-Assignments save as you go; closing Review does not undo them. Failed saves roll back and offer Retry. A review's Done state appears only after queued writes finish. Press `N` outside form controls to focus the quick composer.
+Assignments save as you go; closing Review does not undo them. Failed saves roll back and offer Retry. A review's Done state appears only after queued writes finish. Press `N` outside form controls to focus the desktop composer or open the phone task editor.
 
 ## Existing databases
 

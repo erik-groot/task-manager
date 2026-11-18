@@ -86,7 +86,10 @@ try {
   await cdp('Emulation.setTimezoneOverride', { timezoneId: 'Europe/Amsterdam' });
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await wait(`document.readyState === 'complete' && document.querySelector('#app-view')?.hidden === false && document.querySelector('#connection')?.classList.contains('online')`);
-  await click('[data-section="backlog"]');
+  assert.equal(await evaluate(`document.documentElement.dataset.theme`),'frost');
+  await evaluate(`document.fonts.ready`);
+  assert.ok(await evaluate(`document.fonts.check('15px \"Inter Variable\"')`));
+  await click('#navigation [data-section="backlog"]');
   await input('#quick-title', 'Review proposal @Acme');
   await wait(`!document.querySelector('#suggestions').hidden`);
   await press('Enter');
@@ -182,27 +185,76 @@ try {
   await evaluate(`document.querySelector('#group-by').value='customer';document.querySelector('#group-by').dispatchEvent(new Event('change'))`);
 
   for (const theme of ['clear', 'frost', 'midnight']) {
+    await click('#preferences > summary');
     await click(`.appearance [data-theme="${theme}"]`);
     await screenshot('glass-' + theme);
   }
   // High-contrast and reduced-transparency settings have opaque fallbacks.
   await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
-  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.app-window')).backdropFilter`), 'none');
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.sidebar')).backdropFilter`), 'none');
   await cdp('Emulation.setEmulatedMedia', { features: [] });
-  await click('.appearance [data-theme="clear"]');
+  await click('#preferences > summary');
+  await click('.appearance [data-theme="frost"]');
   await click('#review-start'); await screenshot('glass-review','#review-dialog'); await click('#review-close');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), true);
-  assert.ok(await evaluate(`getComputedStyle(document.querySelector('.mobile-completed')).display !== 'none'`));
+  // The phone has its own reachable navigation, not an overflowing desktop strip.
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.sidebar')).display`),'none');
+  assert.ok(await evaluate(`document.querySelector('.mobile-dock').getBoundingClientRect().height >= 44`));
+  await click('#mobile-lists');
+  await wait(`document.querySelector('#lists-dialog').open`);
+  assert.equal(await evaluate(`document.querySelectorAll('#mobile-sections [data-section]').length`),8);
+  await click('#mobile-sections [data-section="backlog"]');
+  assert.equal(await evaluate(`document.querySelector('#view-title').textContent`),'Backlog');
+  assert.equal(await evaluate(`document.querySelector('#lists-dialog').open`),false);
+  await click('#mobile-today');
+  await click('#search-toggle');
+  await input('#search','no matching title');
+  assert.equal(await evaluate(`document.querySelectorAll('.task').length`),0);
+  await press('Escape');
+  assert.equal(await evaluate(`document.querySelector('#search-toggle').getAttribute('aria-expanded')`),'false');
+  await click('#mobile-add');
+  await wait(`document.querySelector('#task-dialog').open`);
+  assert.ok(await evaluate(`document.querySelector('#task-dialog').getBoundingClientRect().bottom <= innerHeight`));
+  await input('#task-title','Mobile capture @Acme');
+  await wait(`!document.querySelector('#suggestions').hidden`);
+  await press('Enter');
+  await click('#save-task');
+  await wait(`!document.querySelector('#task-dialog').open`);
+  assert.ok((await tasks()).some(task=>task.title==='Mobile capture'));
+  const mobileTask = (await tasks()).find(task=>task.title==='Mobile capture');
+  await fetch(base+'/api/tasks/'+mobileTask.id,{method:'DELETE'});
+  await reload();
+  // A priority alone must not create a second text line or inflate the row.
+  await evaluate(`document.querySelector('#group-by').value='customer';document.querySelector('#group-by').dispatchEvent(new Event('change'))`);
+  const rowGeometry = await evaluate(`{const mark=document.querySelector('.task .priority-mark');const row=mark.closest('.task');const title=row.querySelector('.task-title').getBoundingClientRect();const flag=mark.getBoundingClientRect();({height:row.getBoundingClientRect().height,delta:Math.abs((title.top+title.bottom)/2-(flag.top+flag.bottom)/2)})}`);
+  assert.ok(rowGeometry.height <= 57,JSON.stringify(rowGeometry));
+  assert.ok(rowGeometry.delta < 5,JSON.stringify(rowGeometry));
+  const touchGeometry = await evaluate(`['.checkbox-hit','#mobile-add','#mobile-lists','#mobile-review','#search-toggle','#group-by'].map(selector=>({selector,height:document.querySelector(selector).getBoundingClientRect().height,width:document.querySelector(selector).getBoundingClientRect().width}))`);
+  for (const target of touchGeometry) assert.ok(target.height >= 44 && target.width >= 44,JSON.stringify(target));
   await screenshot('glass-iphone');
-  await click('#review-start');
+  await click('#mobile-review');
   assert.equal(await evaluate(`document.querySelector('#review-dialog').scrollWidth <= document.querySelector('#review-dialog').clientWidth`), true);
   await screenshot('glass-iphone-review');
   await click('#review-close');
+  await click('#mobile-lists'); await screenshot('frost-mobile-lists'); await click('#lists-close');
+  // Verify bottom content stays reachable above the floating dock when scrolled.
+  await evaluate(`window.scrollTo(0,document.documentElement.scrollHeight)`);
+  assert.ok(await evaluate(`document.querySelector('.task:last-child').getBoundingClientRect().bottom < document.querySelector('.mobile-dock').getBoundingClientRect().top`));
+  await evaluate(`window.scrollTo(0,0)`);
   for (const width of [320,768,1024]) {
     await cdp('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<700});
     assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),true,'Horizontal overflow at '+width);
   }
+  await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  const longTask = await create({title:'Review the full scope and timeline for the upcoming customer experience redesign before sharing the final proposal',customer:'A very long customer organization name',priority:'high',section:'today',dueDate:dueFor('today')});
+  await reload();
+  await cdp('Emulation.setDeviceMetricsOverride',{width:320,height:600,deviceScaleFactor:1,mobile:true});
+  assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),true,'Long-title overflow');
+  await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await evaluate(`document.documentElement.style.fontSize='200%'`);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),true,'Text zoom overflow');
+  await evaluate(`document.documentElement.style.fontSize=''`);
   assert.deepEqual(errors, []);
   console.log('Browser checks passed: @/!/# menus, modal positioning, title typing, 1–4 moves, rapid review, fixed-date edits, three themes, reduced transparency, and phone layout.');
 } catch (cause) { console.log('UI state', await evaluate(`JSON.stringify({errors:document.querySelector('#notice').textContent,view:document.querySelector('#view-title').textContent,title:document.querySelector('#quick-title').value,menu:document.querySelector('#suggestions').hidden,tokens:document.querySelector('#quick-tokens').textContent,list:document.querySelector('#task-list').textContent})`)); console.log('Runtime errors',errors); console.log('Network errors',networkErrors); console.log('Navigations',navigations); console.log('Tasks',await tasks()); throw cause; } finally { ws.close(); chrome.kill(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await new Promise(resolve => { if (chrome.exitCode !== null || chrome.signalCode) resolve(); else chrome.once('exit',resolve); }); await rm(directory,{recursive:true,force:true,maxRetries:10}); }

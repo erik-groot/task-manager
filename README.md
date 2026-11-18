@@ -11,13 +11,14 @@ This is a responsive web app starter. It is not a native App Store app. It requi
 - Customer selection with `@`, Low/Medium/High priority with `!`, and Task/Waiting for with `#`.
 - Group by customer, priority, or type; search across task text and customers.
 - Move tasks with `1`–`4` and review every undated task in a keyboard-driven popup.
-- Clear, Frost, and Midnight appearances with responsive glass surfaces and accessibility fallbacks.
+- Frost by default, plus Clear and Midnight, with self-hosted Inter typography and compact inline task status.
+- Dedicated phone list navigation, bottom controls, search, and capture/review sheets.
 - One SQLite database on the Mac mini, retained across restarts.
 - Optional passphrase on localhost; required for direct network access.
 - Automatic refresh every 15 seconds while the page is visible.
 - No external runtime packages or cloud services required for local use.
 
-See [the task workflow and shortcuts](docs/workflow.md) and [design screenshots](docs/designs.md).
+See [the task workflow and shortcuts](docs/workflow.md), [design screenshots](docs/designs.md), and [the design research](docs/design-research.md).
 
 ## Start on your Mac mini
 
