@@ -1,0 +1,14 @@
+{
+  "name": "task-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A personal task manager hosted on your Mac mini and shared across your Apple devices.",
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "start:lan": "HOST=0.0.0.0 node --env-file-if-exists=.env src/index.js",
+    "test": "node --test"
+  }
+}
