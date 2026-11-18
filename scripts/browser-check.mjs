@@ -63,9 +63,9 @@ async function wait(expression) {
   while (Date.now() < until) { if (await evaluate(expression)) return; await new Promise(resolve => setTimeout(resolve, 25)); }
   throw new Error('Timed out: ' + expression);
 }
-async function press(key, code = key) {
-  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, ...(key === 'Enter' ? {windowsVirtualKeyCode:13, text:'\r', unmodifiedText:'\r'} : key.length === 1 ? { text: key, unmodifiedText: key } : {}) });
-  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code });
+async function press(key, code = key, modifiers = 0) {
+  await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, modifiers, ...(key === 'Enter' ? {windowsVirtualKeyCode:13, text:'\r', unmodifiedText:'\r'} : key.length === 1 ? { text: key, unmodifiedText: key } : {}) });
+  await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers });
 }
 async function input(selector, value) {
   await evaluate(`{const el=document.querySelector(${JSON.stringify(selector)});el.focus();el.value=${JSON.stringify(value)};el.setSelectionRange?.(el.value.length,el.value.length);el.dispatchEvent(new Event('input',{bubbles:true}));}`);
@@ -91,7 +91,7 @@ try {
   await wait(`document.readyState === 'complete' && document.querySelector('#app-view')?.hidden === false && document.querySelector('#connection')?.classList.contains('online')`);
   assert.equal(await evaluate(`document.documentElement.dataset.theme`),'frost');
   await evaluate(`document.fonts.ready`);
-  assert.ok(await evaluate(`document.fonts.check('15px \"Inter Variable\"')`));
+  assert.ok(await evaluate(`getComputedStyle(document.documentElement).fontFamily.startsWith('-apple-system')`));
   await click('#navigation [data-section="backlog"]');
   await input('#quick-title', 'Review proposal @Acme');
   await wait(`!document.querySelector('#suggestions').hidden`);
@@ -130,6 +130,72 @@ try {
   assert.deepEqual(reviewed.map(task => task.section), ['today', 'next-week', 'this-week', 'tomorrow']);
   assert.deepEqual(reviewed.map(task => task.dueDate), ['today', 'next-week', 'this-week', 'tomorrow'].map(section => dueFor(section)));
   await click('#review-done');
+  // Metadata stays editable inside Review, including during rapid move/undo/reassign.
+  await clean();
+  await create({title:'Undo and edit',section:'backlog'});
+  await create({title:'Skip and return',section:'later'});
+  await reload(); await click('#review-start');
+  const firstReviewTitle=await evaluate(`document.querySelector('#review-title').textContent`);
+  const firstReviewId=(await tasks()).find(task=>task.title===firstReviewTitle).id;
+  assert.equal(await evaluate(`document.querySelector('#review-back').disabled`),true);
+  await press('@');
+  assert.equal(await evaluate(`document.activeElement.id`),'review-customer');
+  await input('#review-customer','New Customer'); await press('Escape');
+  await press('!');
+  assert.equal(await evaluate(`document.activeElement.id`),'review-priority');
+  await evaluate(`document.querySelector('#review-priority').value='high';document.querySelector('#review-priority').dispatchEvent(new Event('change',{bubbles:true}))`);
+  await press('Escape'); await press('#');
+  assert.equal(await evaluate(`document.activeElement.id`),'review-type');
+  await evaluate(`document.querySelector('#review-type').value='waiting';document.querySelector('#review-type').dispatchEvent(new Event('change',{bubbles:true}))`);
+  await press('Escape');
+  await cdp('Network.emulateNetworkConditions',{offline:false,latency:150,downloadThroughput:-1,uploadThroughput:-1});
+  await press('1','Digit1'); await press('ArrowLeft'); await press('4','Digit4');
+  await wait(`document.querySelector('#connection').classList.contains('online')`);
+  let changed=(await tasks()).find(task=>task.id===firstReviewId);
+  assert.equal(changed.section,'next-week'); assert.equal(changed.dueDate,dueFor('next-week'));
+  assert.equal(changed.customer,'New Customer'); assert.equal(changed.priority,'high'); assert.equal(changed.type,'waiting');
+  const secondReviewTitle=await evaluate(`document.querySelector('#review-title').textContent`);
+  await press('ArrowRight');
+  await wait(`document.querySelector('#review-title').textContent==='All reviewed'`);
+  await click('#review-back');
+  assert.equal(await evaluate(`document.querySelector('#review-title').textContent`),secondReviewTitle);
+  await press('ArrowLeft');
+  assert.equal(await evaluate(`document.querySelector('#review-title').textContent`),firstReviewTitle);
+  await wait(`document.querySelector('#connection').classList.contains('online')`);
+  changed=(await tasks()).find(task=>task.id===firstReviewId);
+  assert.equal(changed.dueDate,''); assert.equal(changed.customer,'New Customer');
+  await press('3','Digit3'); await press('2','Digit2');
+  await wait(`document.querySelector('#review-title').textContent==='All reviewed'`);
+  await press('z','KeyZ',4);
+  assert.equal(await evaluate(`document.querySelector('#review-title').textContent`),secondReviewTitle);
+  await wait(`document.querySelector('#connection').classList.contains('online')`);
+  assert.equal((await tasks()).find(task=>task.title===secondReviewTitle).dueDate,'');
+  await cdp('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
+  await click('#review-close');
+  // An undo that fails is explicitly retryable; the server's saved date is preserved.
+  await clean(); const undoFailed=await create({title:'Retry undo',section:'backlog'});
+  await reload(); await click('#review-start'); await press('1','Digit1');
+  await wait(`document.querySelector('#review-title').textContent==='All reviewed'`);
+  await cdp('Network.setBlockedURLs',{urls:[base+'/api/tasks/*']});
+  await click('#review-back');
+  await wait(`!document.querySelector('#review-undo-retry').hidden`);
+  assert.equal((await tasks()).find(task=>task.id===undoFailed.id).dueDate,dueFor('today'));
+  assert.equal(await evaluate(`document.querySelector('#review-actions button').disabled`),true);
+  await cdp('Network.setBlockedURLs',{urls:[]}); await click('#review-undo-retry');
+  await wait(`document.querySelector('#review-undo-retry').hidden && document.querySelector('#connection').classList.contains('online')`);
+  assert.equal((await tasks()).find(task=>task.id===undoFailed.id).dueDate,'');
+  await click('#review-close');
+  // Failed metadata edits retain their draft and can be saved with the next assignment.
+  await clean(); const draftTask=await create({title:'Keep review draft',section:'backlog'});
+  await reload(); await click('#review-start');
+  await cdp('Network.setBlockedURLs',{urls:[base+'/api/tasks/*']});
+  await input('#review-customer','Keep this draft'); await press('Escape');
+  await wait(`!document.querySelector('#review-error').hidden`);
+  assert.equal((await tasks()).find(task=>task.id===draftTask.id).customer,'');
+  await cdp('Network.setBlockedURLs',{urls:[]}); await press('4','Digit4');
+  await wait(`document.querySelector('#review-title').textContent==='All reviewed'`);
+  assert.equal((await tasks()).find(task=>task.id===draftTask.id).customer,'Keep this draft');
+  await click('#review-close');
   // A failed review write rolls back and offers retry rather than losing a task.
   await clean();
   const failedTask = await create({title:'Retry this task', section:'backlog'});
@@ -228,12 +294,42 @@ try {
   const mobileTask = (await tasks()).find(task=>task.title==='Mobile capture');
   await fetch(base+'/api/tasks/'+mobileTask.id,{method:'DELETE'});
   await reload();
+  // The row action opens all six schedule choices, with Undo restoring the exact old date.
+  const mobileBefore=(await tasks()).find(task=>task.title==='Send revised proposal');
+  await evaluate(`document.querySelector('[data-task-id="${mobileBefore.id}"] .schedule-trigger').click()`);
+  assert.equal(await evaluate(`document.querySelector('#schedule-dialog').open`),true);
+  assert.equal(await evaluate(`document.querySelectorAll('#schedule-options button').length`),6);
+  await click('#schedule-options [data-move="tomorrow"]');
+  await wait(`document.querySelector('#connection').classList.contains('online')`);
+  assert.equal((await tasks()).find(task=>task.id===mobileBefore.id).dueDate,dueFor('tomorrow'));
+  await click('#toast .toast-action');
+  await wait(`document.querySelector('#connection').classList.contains('online')`);
+  assert.equal((await tasks()).find(task=>task.id===mobileBefore.id).dueDate,mobileBefore.dueDate);
+  // Native touch gestures must open scheduling without also opening the editor.
+  async function touchGesture(dx,dy,hold=0){
+    const point=await evaluate(`{const r=document.querySelector('.task .task-main').getBoundingClientRect();({x:r.left+r.width*.65,y:r.top+r.height/2})}`);
+    await cdp('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:point.x,y:point.y}]});
+    if(hold)await new Promise(resolve=>setTimeout(resolve,hold));
+    if(dx||dy)await cdp('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:point.x+dx,y:point.y+dy}]});
+    await cdp('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  }
+  await touchGesture(-90,1);
+  await wait(`document.querySelector('#schedule-dialog').open`);
+  assert.equal(await evaluate(`document.querySelector('#task-dialog').open`),false);
+  await screenshot('sf-mobile-schedule'); await click('#schedule-close');
+  await touchGesture(0,-70);
+  assert.equal(await evaluate(`document.querySelector('#schedule-dialog').open`),false);
+  await evaluate(`window.scrollTo(0,0)`);
+  await touchGesture(0,0,550);
+  await wait(`document.querySelector('#schedule-dialog').open`);
+  assert.equal(await evaluate(`document.querySelector('#task-dialog').open`),false);
+  await click('#schedule-close');
   // A priority alone must not create a second text line or inflate the row.
   await evaluate(`document.querySelector('#group-by').value='customer';document.querySelector('#group-by').dispatchEvent(new Event('change'))`);
   const rowGeometry = await evaluate(`{const mark=document.querySelector('.task .priority-mark');const row=mark.closest('.task');const title=row.querySelector('.task-title').getBoundingClientRect();const flag=mark.getBoundingClientRect();({height:row.getBoundingClientRect().height,delta:Math.abs((title.top+title.bottom)/2-(flag.top+flag.bottom)/2)})}`);
   assert.ok(rowGeometry.height <= 57,JSON.stringify(rowGeometry));
   assert.ok(rowGeometry.delta < 5,JSON.stringify(rowGeometry));
-  const touchGeometry = await evaluate(`['.checkbox-hit','#mobile-add','#mobile-lists','#mobile-review','#search-toggle','#group-by'].map(selector=>({selector,height:document.querySelector(selector).getBoundingClientRect().height,width:document.querySelector(selector).getBoundingClientRect().width}))`);
+  const touchGeometry = await evaluate(`['.checkbox-hit','.schedule-trigger','#mobile-add','#mobile-lists','#mobile-review','#search-toggle','#group-by'].map(selector=>({selector,height:document.querySelector(selector).getBoundingClientRect().height,width:document.querySelector(selector).getBoundingClientRect().width}))`);
   for (const target of touchGeometry) assert.ok(target.height >= 44 && target.width >= 44,JSON.stringify(target));
   await screenshot('glass-iphone');
   await click('#mobile-review');
@@ -259,5 +355,5 @@ try {
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),true,'Text zoom overflow');
   await evaluate(`document.documentElement.style.fontSize=''`);
   assert.deepEqual(errors, []);
-  console.log('Browser checks passed: @/!/# menus, modal positioning, title typing, 1–4 moves, rapid review, fixed-date edits, three themes, reduced transparency, and phone layout.');
+  console.log('Browser checks passed: @/!/# menus, 1–4 moves, editable review, queued undo/reassign, failed-save retries, mobile menus/swipe/long-press, fixed-date edits, typography, themes, accessibility, and responsive layouts.');
 } catch (cause) { console.log('UI state', await evaluate(`JSON.stringify({errors:document.querySelector('#notice').textContent,view:document.querySelector('#view-title').textContent,title:document.querySelector('#quick-title').value,menu:document.querySelector('#suggestions').hidden,tokens:document.querySelector('#quick-tokens').textContent,list:document.querySelector('#task-list').textContent})`)); console.log('Runtime errors',errors); console.log('Network errors',networkErrors); console.log('Navigations',navigations); console.log('Tasks',await tasks()); throw cause; } finally { ws.close(); chrome.kill(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await new Promise(resolve => { if (chrome.exitCode !== null || chrome.signalCode) resolve(); else chrome.once('exit',resolve); }); await rm(directory,{recursive:true,force:true,maxRetries:10}); }

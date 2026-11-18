@@ -6,4 +6,4 @@ Font: https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/InterV
 
 Downloaded 18 November 2026. Inter is distributed under the SIL Open Font License; the complete upstream license is included as `OFL.txt`.
 
-The font is served locally, without a third-party font CDN. The app does not redistribute Apple's San Francisco fonts.
+Inter is the fallback on platforms without Apple's system typefaces. It is served locally, without a third-party font CDN. Apple devices use `-apple-system`/`BlinkMacSystemFont`; the app does not redistribute Apple's San Francisco fonts.

@@ -17,6 +17,9 @@ let review = null;
 let formSaving = false;
 let noticeTimer;
 let toastTimer;
+let toastAction = null;
+let scheduleTaskId = null;
+let activeGesture = null;
 let tokenMenu = null;
 let quickFields = {};
 const taskVersions = new Map();
@@ -42,13 +45,29 @@ function error(message = '') {
   $('#notice').hidden = !message;
   $('#editor-error').textContent = message;
   $('#editor-error').hidden = !message;
+  $('#review-error').textContent = message;
+  $('#review-error').hidden = !message;
   if (message) noticeTimer = setTimeout(() => { $('#notice').hidden = true; }, 9000);
 }
-function toast(message) {
+function clearToast(token) {
+  if (token && token !== toastAction) return;
   clearTimeout(toastTimer);
-  $('#toast').textContent = message;
+  toastAction = null;
+  $('#toast').hidden = true;
+}
+function toast(message, action = null, label = 'Undo') {
+  clearTimeout(toastTimer);
+  const token = { run: action };
+  toastAction = token;
+  $('#toast').replaceChildren(element('span', '', message));
+  if (action) {
+    const button = element('button', 'toast-action', label);
+    button.addEventListener('click', () => { clearToast(token); action(); });
+    $('#toast').append(button);
+  }
   $('#toast').hidden = false;
-  toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 2200);
+  toastTimer = setTimeout(() => clearToast(token), action ? 10000 : 2200);
+  return token;
 }
 function connection(status) {
   $('#connection').className = `connection ${status}`;
@@ -75,6 +94,8 @@ function showLogin() {
   $('#task-dialog').close();
   $('#review-dialog').close();
   $('#lists-dialog').close();
+  $('#schedule-dialog').close();
+  clearToast();
   hideSuggestions();
   $('#app-view').hidden = true;
   $('#login-view').hidden = false;
@@ -105,18 +126,6 @@ function visibleTasks() {
     return `${task.title} ${task.notes} ${task.customer} ${TYPES[task.type]}`.toLocaleLowerCase().includes(query);
   }).sort((a, b) => PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority) ||
     (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || a.createdAt.localeCompare(b.createdAt));
-}
-function metadata(task, chips = false) {
-  const fragment = document.createDocumentFragment();
-  if (task.customer && (chips || $('#group-by').value !== 'customer')) fragment.append(element('span', chips ? 'token customer' : 'customer-tag', `@${task.customer}`));
-  if (task.type === 'waiting' && (chips || $('#group-by').value !== 'type')) fragment.append(element('span', chips ? 'token' : 'type-tag', '# Waiting for'));
-  if (chips || (task.priority !== 'medium' && $('#group-by').value !== 'priority')) {
-    const priority = element('span', chips ? `token ${task.priority}` : `priority-mark ${task.priority}`, chips ? `! ${task.priority[0].toUpperCase()}${task.priority.slice(1)}` : task.priority === 'high' ? '!!' : '↓');
-    priority.title = `${task.priority} priority`;
-    if (!chips) priority.setAttribute('aria-label', `${task.priority} priority`);
-    fragment.append(priority);
-  }
-  return fragment;
 }
 function dateLabel(task) {
   if (!task.dueDate) return '';
@@ -152,12 +161,20 @@ function makeRow(task) {
     result.append(icon(name));
     return result;
   };
-  if (task.type === 'waiting' && $('#group-by').value !== 'type') markers.append(marker('later', 'Waiting for', 'waiting-mark'));
   if (task.priority !== 'medium' && $('#group-by').value !== 'priority') markers.append(marker('flag', `${task.priority === 'high' ? 'High' : 'Low'} priority`, `priority-mark ${task.priority}`));
-  button.append(copy, markers);
+  if (task.type === 'waiting' && $('#group-by').value !== 'type') markers.append(marker('hourglass', 'Waiting for', 'waiting-mark'));
+  button.append(markers, copy);
   button.addEventListener('click', event => { event.stopPropagation(); selectTask(task.id); openEditor(task); });
   const date = element('span', `task-date${!task.completed && task.dueDate && task.dueDate < dueFor('today') ? ' overdue' : ''}`, ['all', 'completed'].includes(view) || task.dueDate && task.dueDate < dueFor('today') ? dateLabel(task) : '');
-  row.append(hitArea, button, date);
+  const scheduleButton = element('button', 'icon-button schedule-trigger');
+  scheduleButton.setAttribute('aria-label', `Schedule ${task.title}`);
+  scheduleButton.title = 'Schedule task';
+  scheduleButton.setAttribute('aria-haspopup', 'dialog');
+  scheduleButton.append(icon('more'));
+  scheduleButton.hidden = task.completed;
+  scheduleButton.addEventListener('click', event => { event.stopPropagation(); openSchedule(task.id); });
+  row.append(hitArea, button, date, scheduleButton);
+  installTaskGestures(row, task.id);
   row.addEventListener('focusin', () => selectTask(task.id));
   row.addEventListener('click', () => { selectTask(task.id); row.focus(); });
   return row;
@@ -207,7 +224,7 @@ function render() {
   for (const [key, members] of entries) {
     if (!members.length) continue;
     if (groupBy !== 'none') {
-      const label = groupBy === 'customer' ? key ? `@${key}` : 'No customer' : groupBy === 'type' ? TYPES[key] : `${key[0].toUpperCase()}${key.slice(1)}`;
+      const label = groupBy === 'customer' ? key || 'No customer' : groupBy === 'type' ? TYPES[key] : `${key[0].toUpperCase()}${key.slice(1)}`;
       const heading = element('h2', 'group-heading', label);
       heading.append(element('span', '', members.length));
       list.append(heading);
@@ -222,7 +239,7 @@ function render() {
   $('#customer-list').replaceChildren(...customers().map(name => { const option = element('option'); option.value = name; return option; }));
 }
 async function refresh() {
-  if (!signedIn || readPending || pendingWrites) return;
+  if (!signedIn || readPending || pendingWrites || activeGesture) return;
   const version = revision;
   readPending = true;
   try {
@@ -237,19 +254,24 @@ async function refresh() {
   } catch (cause) { if (revision === version) { connection('offline'); error(cause.message); } }
   finally { readPending = false; }
 }
-function patchTask(id, fields, { onError, message } = {}) {
+function patchTask(id, fields, { onError, message, skipIfSame = false } = {}) {
   const previous = tasks.find(task => task.id === id);
-  if (!previous) return Promise.resolve();
+  if (!previous) return Promise.resolve(false);
   const version = (taskVersions.get(id) || 0) + 1;
   taskVersions.set(id, version);
   tasks = tasks.map(task => task.id === id ? { ...task, ...fields } : task);
   render();
   if (message) toast(message);
-  const saved = queueWrite(() => api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(fields) }));
+  const saved = queueWrite(() => {
+    const confirmed = confirmedTasks.get(id);
+    if (skipIfSame && confirmed && Object.entries(fields).every(([key, value]) => confirmed[key] === value)) return confirmed;
+    return api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(fields) });
+  });
   return saved.then(task => {
     confirmedTasks.set(id, task);
     if (taskVersions.get(id) === version) tasks = tasks.map(item => item.id === id ? task : item);
     render();
+    return true;
   }).catch(cause => {
     if (taskVersions.get(id) === version) tasks = tasks.map(item => item.id === id ? confirmedTasks.get(id) ?? previous : item);
     onError?.(id);
@@ -257,6 +279,7 @@ function patchTask(id, fields, { onError, message } = {}) {
     render();
     renderReview();
     connection('offline');
+    return false;
   });
 }
 function setView(section) {
@@ -272,13 +295,98 @@ function schedule(id, section) {
   const visible = visibleTasks();
   const index = visible.findIndex(item => item.id === id);
   const next = visible[index + 1] || visible[index - 1];
-  const result = patchTask(id, scheduledFields(section), { message: LABELS[section] });
+  const before = scheduleSnapshot(task);
+  let active = true;
+  const token = toast(LABELS[section], () => {
+    if (!active) return;
+    active = false;
+    restoreSchedule(id, before);
+  });
+  const result = patchTask(id, scheduledFields(section), { onError: () => { active = false; clearToast(token); } });
   if (!visibleTasks().some(item => item.id === id)) {
     selectTask(next?.id ?? null);
     if (next) [...document.querySelectorAll('.task')].find(row => row.dataset.taskId === next.id)?.focus({ preventScroll: true });
   }
   return result;
 }
+function scheduleSnapshot(task) {
+  let section = task.section;
+  if (!task.dueDate) section = section === 'later' ? 'later' : 'backlog';
+  else if (['later', 'backlog'].includes(section)) section = sectionFor(task) === 'later' ? 'next-week' : sectionFor(task);
+  return { section, dueDate: task.dueDate };
+}
+async function restoreSchedule(id, before) {
+  const restored = await patchTask(id, before, { skipIfSame: true });
+  if (restored) toast('Undone');
+  else toast('Could not undo', () => restoreSchedule(id, before), 'Retry');
+}
+function openSchedule(id) {
+  const task = tasks.find(item => item.id === id);
+  if (!task || task.completed) return;
+  scheduleTaskId = id;
+  selectTask(id);
+  $('#preferences').open = false;
+  $('#schedule-task-title').textContent = task.title;
+  document.querySelectorAll('#schedule-options button').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.move === sectionFor(task)));
+  });
+  if (!$('#schedule-dialog').open) $('#schedule-dialog').showModal();
+  $('#schedule-dialog').focus();
+}
+function cancelTaskGesture() {
+  if (!activeGesture) return;
+  clearTimeout(activeGesture.timer);
+  activeGesture.row.classList.remove('gesture-active');
+  activeGesture = null;
+}
+function installTaskGestures(row, id) {
+  let suppressClickUntil = 0;
+  row.addEventListener('click', event => {
+    if (Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  row.addEventListener('contextmenu', event => {
+    if (tasks.find(task => task.id === id)?.completed) return;
+    event.preventDefault();
+    openSchedule(id);
+  });
+  row.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'touch' || event.isPrimary === false || event.target.closest('.checkbox-hit,.schedule-trigger')) return;
+    if (tasks.find(task => task.id === id)?.completed) return;
+    cancelTaskGesture();
+    const gesture = { id, row, pointer: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, dy: 0, opened: false,
+      suppress: () => { suppressClickUntil = Date.now() + 800; } };
+    gesture.timer = setTimeout(() => {
+      if (activeGesture !== gesture) return;
+      gesture.opened = true;
+      gesture.suppress();
+      openSchedule(id);
+    }, 500);
+    activeGesture = gesture;
+  });
+}
+document.addEventListener('pointermove', event => {
+  const gesture = activeGesture;
+  if (!gesture || gesture.pointer !== event.pointerId || gesture.opened) return;
+  gesture.dx = event.clientX - gesture.x;
+  gesture.dy = event.clientY - gesture.y;
+  if (Math.abs(gesture.dy) > 12 && Math.abs(gesture.dy) > Math.abs(gesture.dx)) { cancelTaskGesture(); return; }
+  if (Math.abs(gesture.dx) > 12) {
+    clearTimeout(gesture.timer);
+    gesture.row.classList.add('gesture-active');
+    if (event.cancelable) event.preventDefault();
+  }
+}, { passive: false });
+document.addEventListener('pointerup', event => {
+  const gesture = activeGesture;
+  if (!gesture || gesture.pointer !== event.pointerId) return;
+  const swipe = !gesture.opened && gesture.dx < -55 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4;
+  if (swipe) gesture.suppress();
+  cancelTaskGesture();
+  if (swipe) openSchedule(gesture.id);
+});
+document.addEventListener('pointercancel', cancelTaskGesture);
+window.addEventListener('blur', cancelTaskGesture);
+
 function openEditor(task = null, title = '', fields = {}) {
   hideSuggestions();
   error();
@@ -316,34 +424,66 @@ async function saveEditor() {
   } catch (cause) { error(cause.message); }
   finally { formSaving = false; $('#save-task').disabled = false; }
 }
-function startReview(ids) {
+function startReview(ids, drafts = new Map()) {
   const queue = ids ?? completionReview(tasks).map(task => task.id);
   if (!queue.length) return;
-  review = { ids: queue, index: 0, failed: new Set() };
+  clearToast();
+  error();
+  review = { ids: queue, index: 0, failed: new Set(), history: [], drafts, undoFailure: null };
+  $('#review-meta').dataset.taskId = '';
   renderReview();
   if (!$('#review-dialog').open) $('#review-dialog').showModal();
   $('#review-dialog').focus();
 }
 function currentReviewTask() { return review ? tasks.find(task => task.id === review.ids[review.index]) : null; }
+function reviewFields(id) {
+  if ($('#review-meta').dataset.taskId !== id) return review?.drafts.get(id) ?? {};
+  const typed = $('#review-customer').value.trim();
+  const customer = customers().find(name => name.toLocaleLowerCase() === typed.toLocaleLowerCase()) ?? typed;
+  const fields = { customer, priority: $('#review-priority').value, type: $('#review-type').value };
+  review?.drafts.set(id, fields);
+  return fields;
+}
+function commitReviewMetadata() {
+  const task = currentReviewTask();
+  if (!task || review.undoFailure) return;
+  const fields = reviewFields(task.id);
+  const changes = Object.fromEntries(Object.entries(fields).filter(([key, value]) => task[key] !== value));
+  if (Object.keys(changes).length) patchTask(task.id, changes);
+}
 function renderReview() {
   if (!review) return;
-  while (review.index < review.ids.length && (!currentReviewTask() || currentReviewTask().completed || currentReviewTask().dueDate)) ++review.index;
+  while (!review.undoFailure && review.index < review.ids.length && (!currentReviewTask() || currentReviewTask().completed || currentReviewTask().dueDate)) ++review.index;
   const task = currentReviewTask();
+  const blocked = Boolean(review.undoFailure);
+  const last = review.history.at(-1);
+  $('#review-back').disabled = !last || blocked;
+  $('#review-back span').textContent = last?.kind === 'move' ? 'Undo' : 'Back';
+  $('#review-back').setAttribute('aria-label', last?.kind === 'move' ? 'Undo last assignment' : 'Back to previous task');
   $('#review-progress').textContent = `${Math.min(review.index + 1, review.ids.length)} / ${review.ids.length}`;
   $('#review-progress-fill').style.width = `${(review.index / review.ids.length) * 100}%`;
   $('#review-actions').hidden = !task;
   $('.review-footer').hidden = !task;
-  $('#review-done').hidden = Boolean(task) || pendingWrites > 0 || review.failed.size > 0;
-  $('#review-retry').hidden = Boolean(task) || pendingWrites > 0 || review.failed.size === 0;
+  document.querySelectorAll('#review-actions button, .review-footer button, #review-meta input, #review-meta select').forEach(control => { control.disabled = blocked; });
+  $('#review-done').hidden = Boolean(task) || pendingWrites > 0 || review.failed.size > 0 || blocked;
+  $('#review-retry').hidden = Boolean(task) || pendingWrites > 0 || review.failed.size === 0 || blocked;
+  $('#review-undo-retry').hidden = !blocked;
   $('#review-section').hidden = !task;
   $('#review-notes').hidden = !task?.notes;
-  $('#review-meta').replaceChildren();
-  $('#review-message').hidden = Boolean(task) || (!pendingWrites && !review.failed.size);
+  $('#review-meta').hidden = !task;
+  $('#review-message').hidden = !blocked && (Boolean(task) || (!pendingWrites && !review.failed.size));
   if (task) {
     $('#review-section').textContent = LABELS[sectionFor(task)];
     $('#review-title').textContent = task.title;
     $('#review-notes').textContent = task.notes;
-    $('#review-meta').append(metadata(task, true));
+    const changedTask = $('#review-meta').dataset.taskId !== task.id;
+    const fields = review.drafts.get(task.id) ?? task;
+    for (const key of ['customer', 'priority', 'type']) {
+      const input = $(`#review-${key}`);
+      if (changedTask || document.activeElement !== input) input.value = fields[key] ?? '';
+    }
+    $('#review-meta').dataset.taskId = task.id;
+    if (blocked) $('#review-message').textContent = 'Undo was not saved. Retry to continue.';
   } else {
     $('#review-title').textContent = pendingWrites ? 'Saving…' : review.failed.size ? 'Could not save' : 'All reviewed';
     $('#review-notes').textContent = '';
@@ -353,14 +493,49 @@ function renderReview() {
 }
 function reviewMove(section) {
   const task = currentReviewTask();
-  if (!task) return;
+  if (!task || review.undoFailure) return;
+  error();
   const activeReview = review;
+  const fields = reviewFields(task.id);
+  const record = { id: task.id, index: review.index, before: scheduleSnapshot(task), kind: 'move', active: true };
+  review.history.push(record);
   ++review.index;
-  patchTask(task.id, scheduledFields(section), { onError: id => { activeReview.failed.add(id); } });
+  patchTask(task.id, { ...fields, ...scheduledFields(section) }, { onError: id => {
+    record.failed = true;
+    if (record.active) activeReview.failed.add(id);
+  } });
   renderReview();
 }
-function closeReview() { $('#review-dialog').close(); review = null; }
-function skipReview() { if (currentReviewTask()) { ++review.index; renderReview(); } }
+function reviewBack() {
+  if (!review || review.undoFailure || !review.history.length) return;
+  commitReviewMetadata();
+  error();
+  const record = review.history.pop();
+  record.active = false;
+  review.index = record.index;
+  review.failed.delete(record.id);
+  if (record.kind === 'move' && !record.failed) restoreReviewRecord(review, record);
+  else renderReview();
+}
+function restoreReviewRecord(context, record) {
+  context.undoFailure = null;
+  context.index = record.index;
+  error();
+  patchTask(record.id, record.before, { skipIfSame: true, onError: () => { context.undoFailure = record; } }).then(ok => {
+    if (ok) context.undoFailure = null;
+    if (review === context) renderReview();
+  });
+  renderReview();
+}
+function closeReview() { commitReviewMetadata(); $('#review-dialog').close(); review = null; }
+function skipReview() {
+  const task = currentReviewTask();
+  if (!task || review.undoFailure) return;
+  commitReviewMetadata();
+  review.history.push({ id: task.id, index: review.index, kind: 'skip', active: true });
+  ++review.index;
+  renderReview();
+}
 
 // One suggestion menu serves both the quick composer and the full editor.
 function hideSuggestions() {
@@ -491,7 +666,11 @@ for (const [key, section] of Object.entries(moves).slice(0, 4)) {
     const button = element('button', parent.id === 'review-actions' ? 'review-action' : 'move-button');
     button.type = 'button';
     button.dataset.move = section;
-    button.append(element('kbd', '', key), element('span', '', LABELS[section]));
+    const label = element('span', '', LABELS[section]);
+    if (parent.id === 'review-actions' && ['this-week', 'next-week'].includes(section)) {
+      label.append(element('span', 'review-date', new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${dueFor(section)}T12:00:00`))));
+    }
+    button.append(element('kbd', '', key), label);
     if (parent.id === 'move-buttons') { button.disabled = true; button.addEventListener('click', () => schedule(selectedId, section)); }
     if (parent.id === 'editor-moves') button.addEventListener('click', () => {
       $('#task-section').value = section;
@@ -586,12 +765,33 @@ $('#delete-task').addEventListener('click', async () => {
 });
 $('#review-start').addEventListener('click', () => startReview());
 $('#review-close').addEventListener('click', closeReview);
-$('#review-dialog').addEventListener('cancel', () => { review = null; });
+$('#review-dialog').addEventListener('cancel', () => { commitReviewMetadata(); review = null; });
 $('#review-done').addEventListener('click', closeReview);
-$('#review-retry').addEventListener('click', () => startReview([...review.failed]));
+$('#review-retry').addEventListener('click', () => startReview([...review.failed], review.drafts));
 $('#review-later').addEventListener('click', () => reviewMove('later'));
 $('#review-backlog').addEventListener('click', () => reviewMove('backlog'));
 $('#review-skip').addEventListener('click', skipReview);
+$('#review-back').addEventListener('click', reviewBack);
+$('#review-undo-retry').addEventListener('click', () => restoreReviewRecord(review, review.undoFailure));
+for (const key of ['customer', 'priority', 'type']) {
+  const control = $(`#review-${key}`);
+  control.addEventListener('change', commitReviewMetadata);
+  control.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation();
+      commitReviewMetadata(); $('#review-dialog').focus();
+    }
+  });
+}
+for (const [key, section] of Object.entries(moves)) {
+  const button = element('button', 'schedule-option');
+  button.type = 'button';
+  button.dataset.move = section;
+  button.append(icon(icons[section]), element('span', '', LABELS[section]), element('span', 'schedule-date', dueFor(section) ? new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${dueFor(section)}T12:00:00`)) : ''), element('kbd', '', key));
+  button.addEventListener('click', () => { const id = scheduleTaskId; $('#schedule-dialog').close(); schedule(id, section); });
+  $('#schedule-options').append(button);
+}
+$('#schedule-close').addEventListener('click', () => $('#schedule-dialog').close());
 $('#login-form').addEventListener('submit', async event => {
   event.preventDefault();
   const button = event.submitter;
@@ -611,14 +811,30 @@ $('#logout').addEventListener('click', async () => {
 });
 
 document.addEventListener('keydown', event => {
-  if (event.defaultPrevented || event.repeat || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !signedIn) return;
+  if (event.defaultPrevented || event.repeat || event.isComposing || !signedIn) return;
   if (event.target.closest('input,textarea,select,[contenteditable="true"]')) return;
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
+    if ($('#review-dialog').open) { event.preventDefault(); reviewBack(); }
+    else if (toastAction?.run && !document.querySelector('dialog[open]')) { event.preventDefault(); const action = toastAction.run; clearToast(); action(); }
+    return;
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
   if ($('#review-dialog').open) {
     if (moves[event.key]) { event.preventDefault(); reviewMove(moves[event.key]); }
     if (event.key === 'ArrowRight') { event.preventDefault(); skipReview(); }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); reviewBack(); }
+    const field = { '@': 'customer', '!': 'priority', '#': 'type' }[event.key];
+    if (field && currentReviewTask() && !review.undoFailure) {
+      event.preventDefault(); $(`#review-${field}`).focus();
+      if (field === 'customer') $('#review-customer').select();
+    }
     return;
   }
   if ($('#lists-dialog').open) return;
+  if ($('#schedule-dialog').open) {
+    if (moves[event.key]) { event.preventDefault(); const id = scheduleTaskId; $('#schedule-dialog').close(); schedule(id, moves[event.key]); }
+    return;
+  }
   if ($('#task-dialog').open) {
     if (moves[event.key] && !formSaving) {
       event.preventDefault();
@@ -628,6 +844,7 @@ document.addEventListener('keydown', event => {
     }
     return;
   }
+  if (event.key === 'F10' && event.shiftKey && selectedId) { event.preventDefault(); openSchedule(selectedId); return; }
   if (moves[event.key] && selectedId) { event.preventDefault(); schedule(selectedId, moves[event.key]); }
   if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
     const visible = visibleTasks();

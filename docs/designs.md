@@ -10,7 +10,7 @@ An opaque task canvas with cool translucent navigation and blue accents.
 
 ## Frost
 
-A warm white task canvas, sage accents, and restrained glass navigation. Inter Variable is self-hosted for consistent typography.
+A warm white task canvas, sage accents, and restrained glass navigation. Apple devices use SF through the system font stack, with a self-hosted Inter fallback elsewhere.
 
 ![Frost](screenshots/glass-frost.png)
 
@@ -32,9 +32,13 @@ A dark task canvas with translucent navigation and muted green accents.
 
 ![Phone list picker](screenshots/frost-mobile-lists.png)
 
-Glass is reserved for navigation and floating controls. Task rows keep priority and waiting indicators inline; these indicators do not create separate metadata lines. Phone navigation, search, and capture use their own layout, with a full list picker and bottom controls.
+![Phone quick scheduling](screenshots/sf-mobile-schedule.png)
 
-Surfaces have Safari-prefixed backdrop filters and fallbacks for reduced transparency, reduced motion, and increased contrast. Automated checks include 200% text scaling, touch targets, long titles, and clearance above the phone dock. These screenshots were captured in Chromium. Native Safari and physical Apple-device verification remain outstanding.
+Glass is reserved for navigation and floating controls. Task rows keep priority flags and waiting hourglasses next to the title; these indicators do not create separate metadata lines. Customer group headers omit the entry prefix and use tighter spacing. Phone navigation, search, and capture use their own layout, with a full list picker, bottom controls, and a scheduling sheet reachable by row menu, swipe, or long-press.
+
+Review provides editable metadata, exact weekly dates, and Back/Undo. Returning to a card restores its previous schedule while retaining metadata edits.
+
+Surfaces have Safari-prefixed backdrop filters and fallbacks for reduced transparency, reduced motion, and increased contrast. Automated checks include 200% text scaling, touch targets, long titles, clearance above the phone dock, actual touch-event gestures, and queued undo operations. Screenshots are browser-rendered previews; the SF design preview uses locally installed Apple design fonts only for rendering, without distributing those font files. Native Safari and physical Apple-device verification remain outstanding.
 
 To regenerate screenshots using an isolated temporary database and Chromium:
 

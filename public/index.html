@@ -8,7 +8,6 @@
   <title>Task Manager</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" type="module"></script>
 </head>
@@ -29,6 +28,9 @@
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
     <symbol id="i-group" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6h1m-1 6h1m-1 6h1"/></symbol>
     <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4c5-4 9 4 14 0v10c-5 4-9-4-14 0"/></symbol>
+    <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3c0 5 1 6 5 9-4 3-5 4-5 9m10-18c0 5-1 6-5 9 4 3 5 4 5 9"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5m5-5-5 5 5 5"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></symbol>
     <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
     <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5v16h5m-1-8h12m-4-4 4 4-4 4"/></symbol>
@@ -75,7 +77,23 @@
       <div id="editor-moves" class="editor-moves" aria-label="Schedule task"></div><div class="editor-actions"><button id="delete-task" type="button" class="danger" hidden>Delete</button><button id="save-task" type="submit" class="primary">Save</button></div>
     </form>
   </dialog>
-  <dialog id="review-dialog" class="review-modal" tabindex="-1" aria-labelledby="review-title"><span class="sheet-handle" aria-hidden="true"></span><header class="modal-header"><span id="review-progress">Review</span><button id="review-close" class="icon-button" aria-label="Close review"><svg><use href="#i-close"/></svg></button></header><div class="progress-track"><div id="review-progress-fill"></div></div><div id="review-card"><span id="review-section" class="review-section"></span><h2 id="review-title"></h2><p id="review-notes"></p><div id="review-meta" class="token-row"></div></div><p id="review-message" role="status" hidden></p><div id="review-actions" class="review-actions"></div><footer class="review-footer"><button id="review-backlog" class="quiet" title="Keep in backlog (6)">Backlog <kbd>6</kbd></button><button id="review-later" class="quiet" title="Move to Later (5)">Later <kbd>5</kbd></button><button id="review-skip" class="quiet" title="Skip (right arrow)">Skip <svg><use href="#i-arrow"/></svg></button></footer><button id="review-done" class="primary" hidden>Done</button><button id="review-retry" class="primary" hidden>Retry</button></dialog>
+  <dialog id="review-dialog" class="review-modal" tabindex="-1" aria-labelledby="review-title">
+    <span class="sheet-handle" aria-hidden="true"></span>
+    <header class="modal-header"><button id="review-back" class="quiet review-back" title="Back / Undo (← or ⌘Z)" disabled><svg><use href="#i-back"/></svg><span>Back</span></button><span id="review-progress">Review</span><button id="review-close" class="icon-button" aria-label="Close review"><svg><use href="#i-close"/></svg></button></header>
+    <div class="progress-track"><div id="review-progress-fill"></div></div>
+    <div id="review-card"><span id="review-section" class="review-section"></span><h2 id="review-title"></h2><p id="review-notes"></p>
+      <div id="review-meta" class="review-metadata">
+        <label class="review-field customer-field"><span class="sr-only">Customer</span><input id="review-customer" list="customer-list" maxlength="100" placeholder="Customer" autocomplete="off" title="Customer (@)"></label>
+        <label class="review-field"><span class="sr-only">Priority</span><select id="review-priority" title="Priority (!)"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+        <label class="review-field"><span class="sr-only">Type</span><select id="review-type" title="Type (#)"><option value="task">Task</option><option value="waiting">Waiting for</option></select></label>
+      </div>
+    </div>
+    <p id="review-error" class="inline-error" role="alert" hidden></p>
+    <p id="review-message" role="status" hidden></p><div id="review-actions" class="review-actions"></div>
+    <footer class="review-footer"><button id="review-backlog" class="quiet" title="Keep in backlog (6)">Backlog <kbd>6</kbd></button><button id="review-later" class="quiet" title="Move to Later (5)">Later <kbd>5</kbd></button><button id="review-skip" class="quiet" title="Skip (right arrow)">Skip <svg><use href="#i-arrow"/></svg></button></footer>
+    <button id="review-done" class="primary" hidden>Done</button><button id="review-retry" class="primary" hidden>Retry</button><button id="review-undo-retry" class="primary" hidden>Retry undo</button>
+  </dialog>
+  <dialog id="schedule-dialog" class="schedule-sheet" tabindex="-1" aria-labelledby="schedule-title"><span class="sheet-handle" aria-hidden="true"></span><header class="modal-header"><h2 id="schedule-title">Move task</h2><button id="schedule-close" class="icon-button" aria-label="Close scheduling"><svg><use href="#i-close"/></svg></button></header><p id="schedule-task-title"></p><div id="schedule-options"></div></dialog>
   <div id="suggestions" class="suggestions glass" role="listbox" aria-label="Task options" hidden></div>
   <datalist id="customer-list"></datalist>
   <div id="toast" class="toast glass" role="status" hidden></div>
