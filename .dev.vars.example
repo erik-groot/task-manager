@@ -1,0 +1,5 @@
+# Optional: local Worker testing with a real Cloudflare Access assertion header.
+# Ordinary interface development can still use npm run dev (local Node server).
+ACCESS_TEAM_DOMAIN=your-team.cloudflareaccess.com
+ACCESS_AUD=your-access-application-audience
+ACCESS_ALLOWED_EMAILS=you@example.com

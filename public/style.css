@@ -367,3 +367,5 @@ button.token:hover { border-color: var(--accent); }
   .schedule-sheet { padding-bottom: 17px; }
   .schedule-option { min-height: 50px; font-size: 1rem; }
 }
+
+.access-login { display: block; text-align: center; text-decoration: none; }

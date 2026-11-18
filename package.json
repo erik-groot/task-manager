@@ -2,14 +2,30 @@
   "name": "task-manager",
   "version": "0.1.0",
   "private": true,
-  "description": "A personal task manager hosted on your Mac mini and shared across your Apple devices.",
+  "description": "A personal task manager for Apple devices, hosted locally or on Cloudflare Workers and D1.",
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --watch --env-file-if-exists=.env src/index.js",
     "start:lan": "HOST=0.0.0.0 node --env-file-if-exists=.env src/index.js",
     "test": "node --test",
-    "test:browser": "node scripts/browser-check.mjs"
+    "test:browser": "node scripts/browser-check.mjs",
+    "dev:cloudflare": "wrangler dev --ip 127.0.0.1",
+    "check:cloudflare": "wrangler deploy --dry-run --outdir .cloudflare-build",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "export:cloudflare": "node scripts/export-cloudflare.mjs"
+  },
+  "dependencies": {
+    "jose": "^6.2.17"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.164.0"
   }
 }
