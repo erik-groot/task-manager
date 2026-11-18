@@ -354,6 +354,40 @@ try {
   await evaluate(`document.documentElement.style.fontSize='200%'`);
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),true,'Text zoom overflow');
   await evaluate(`document.documentElement.style.fontSize=''`);
+  // Exercise the browser's cloud session behavior without a real Access account.
+  let cloudExpired = false;
+  const cloudFetch = async event => {
+    const message = JSON.parse(event.data);
+    if (message.method !== 'Fetch.requestPaused') return;
+    const { requestId, request } = message.params;
+    const path = new URL(request.url).pathname;
+    let body;
+    if (path === '/api/session') body = { authenticated: true, passwordRequired: false, authProvider: 'cloudflare-access', email: 'owner@example.com' };
+    if (path === '/api/logout') body = { ok: true, logoutUrl: '/cdn-cgi/access/logout' };
+    try {
+      if (path === '/api/tasks' && cloudExpired) {
+        await cdp('Fetch.fulfillRequest', { requestId, responseCode: 302, responseHeaders: [{name:'Location',value:'/cdn-cgi/access/login'}], body: '' });
+      } else if (body) {
+        await cdp('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{name:'Content-Type',value:'application/json'}], body: Buffer.from(JSON.stringify(body)).toString('base64') });
+      } else await cdp('Fetch.continueRequest', { requestId });
+    } catch (cause) { errors.push(cause.message); }
+  };
+  ws.addEventListener('message', cloudFetch);
+  await cdp('Fetch.enable', { patterns: [{urlPattern: base + '/api/*'}] });
+  await reload();
+  assert.equal(await evaluate(`document.querySelector('#logout').hidden`), false, 'Cloud sign-out is available');
+  cloudExpired = true;
+  await evaluate(`window.dispatchEvent(new Event('focus'))`);
+  await wait(`!document.querySelector('#login-view').hidden && !document.querySelector('#access-login').hidden`);
+  assert.equal(await evaluate(`document.querySelector('#login-form').hidden`), true, 'Access expiry does not ask for a local passphrase');
+  assert.equal(await evaluate(`document.querySelector('#task-list').children.length`), 0, 'Expired session clears the visible task list');
+  cloudExpired = false;
+  await click('#access-login');
+  await wait(`document.querySelector('#app-view')?.hidden === false && document.querySelector('#connection')?.classList.contains('online')`);
+  await click('#logout');
+  await wait(`location.pathname === '/cdn-cgi/access/logout'`);
+  await cdp('Fetch.disable');
+  ws.removeEventListener('message', cloudFetch);
   assert.deepEqual(errors, []);
-  console.log('Browser checks passed: @/!/# menus, 1–4 moves, editable review, queued undo/reassign, failed-save retries, mobile menus/swipe/long-press, fixed-date edits, typography, themes, accessibility, and responsive layouts.');
+  console.log('Browser checks passed: @/!/# menus, 1–4 moves, editable review, queued undo/reassign, failed-save retries, mobile menus/swipe/long-press, fixed-date edits, typography, themes, accessibility, responsive layouts, and Cloudflare session expiry/sign-out.');
 } catch (cause) { console.log('UI state', await evaluate(`JSON.stringify({errors:document.querySelector('#notice').textContent,view:document.querySelector('#view-title').textContent,title:document.querySelector('#quick-title').value,menu:document.querySelector('#suggestions').hidden,tokens:document.querySelector('#quick-tokens').textContent,list:document.querySelector('#task-list').textContent})`)); console.log('Runtime errors',errors); console.log('Network errors',networkErrors); console.log('Navigations',navigations); console.log('Tasks',await tasks()); throw cause; } finally { ws.close(); chrome.kill(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await new Promise(resolve => { if (chrome.exitCode !== null || chrome.signalCode) resolve(); else chrome.once('exit',resolve); }); await rm(directory,{recursive:true,force:true,maxRetries:10}); }

@@ -2,22 +2,10 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { openStore } from './store.js';
-import { SECTIONS, PRIORITIES } from '../public/planning.js';
+import { assets, securityHeaders } from './http.js';
+import { RequestError, validateFields } from './validation.js';
 
-const assets = new Map([
-  ['/', ['index.html', 'text/html; charset=utf-8']],
-  ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  ['/planning.js', ['planning.js', 'text/javascript; charset=utf-8']],
-  ['/style.css', ['style.css', 'text/css; charset=utf-8']],
-  ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
-  ['/icon.svg', ['icon.svg', 'image/svg+xml']],
-  ['/fonts/InterVariable.woff2', ['fonts/InterVariable.woff2', 'font/woff2']],
-]);
 const publicRoot = new URL('../public/', import.meta.url);
-
-class RequestError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
 
 async function jsonBody(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) {
@@ -37,58 +25,6 @@ async function jsonBody(req) {
   } catch { throw new RequestError(400, 'Invalid JSON object.'); }
 }
 
-function validateFields(body, partial = false) {
-  const fields = {};
-  if (!partial || 'title' in body) {
-    if (typeof body.title !== 'string' || !body.title.trim() || body.title.trim().length > 200) {
-      throw new RequestError(400, 'Title must contain between 1 and 200 characters.');
-    }
-    fields.title = body.title.trim();
-  }
-  for (const [key, limit] of [['notes', 4000], ['dueDate', 10]]) {
-    if (!partial || key in body) {
-      const value = body[key] ?? '';
-      if (typeof value !== 'string' || value.length > limit) throw new RequestError(400, `Invalid ${key}.`);
-      fields[key] = value;
-    }
-  }
-  if (fields.dueDate && (!/^\d{4}-\d{2}-\d{2}$/.test(fields.dueDate) ||
-      !Number.isFinite(Date.parse(fields.dueDate)) ||
-      new Date(fields.dueDate).toISOString().slice(0, 10) !== fields.dueDate)) {
-    throw new RequestError(400, 'Choose a valid due date.');
-  }
-  if (!partial || 'priority' in body) {
-    fields.priority = body.priority === 'normal' ? 'medium' : body.priority ?? 'medium';
-    if (!PRIORITIES.includes(fields.priority)) throw new RequestError(400, 'Invalid priority.');
-  }
-  if (!partial || 'section' in body) {
-    fields.section = body.section ?? 'backlog';
-    if (!SECTIONS.includes(fields.section)) throw new RequestError(400, 'Invalid section.');
-  }
-  if ('section' in body && ['later', 'backlog'].includes(fields.section)) {
-    if (fields.dueDate) throw new RequestError(400, 'Later and Backlog do not have a date.');
-    fields.dueDate = '';
-  }
-  if ('section' in body && !['later', 'backlog'].includes(fields.section) && !fields.dueDate) {
-    throw new RequestError(400, 'A scheduled section needs a due date.');
-  }
-  if (!partial || 'customer' in body) {
-    if (body.customer !== undefined && (typeof body.customer !== 'string' || body.customer.length > 100)) {
-      throw new RequestError(400, 'Customer must be at most 100 characters.');
-    }
-    fields.customer = (body.customer ?? '').trim();
-  }
-  if (!partial || 'type' in body) {
-    fields.type = body.type ?? 'task';
-    if (!['task', 'waiting'].includes(fields.type)) throw new RequestError(400, 'Invalid type.');
-  }
-  if ('completed' in body) {
-    if (typeof body.completed !== 'boolean') throw new RequestError(400, 'Invalid completion status.');
-    fields.completed = body.completed;
-  }
-  return fields;
-}
-
 export function createApp({ databasePath, password = '' }) {
   const store = openStore(databasePath);
   const sessions = new Map();
@@ -106,9 +42,7 @@ export function createApp({ databasePath, password = '' }) {
   };
 
   const server = createServer(async (req, res) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    for (const [name, value] of Object.entries(securityHeaders)) res.setHeader(name, value);
     const send = (status, data) => {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(data));

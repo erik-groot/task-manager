@@ -9,6 +9,7 @@ let view = 'today';
 let selectedId = null;
 let editingId = null;
 let signedIn = false;
+let authProvider = 'local';
 let revision = 0;
 let readPending = false;
 let pendingWrites = 0;
@@ -76,8 +77,15 @@ function connection(status) {
   $('#connection').title = label;
 }
 async function api(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  const response = await fetch(path, { redirect: 'manual', ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  if (response.type === 'opaqueredirect' || response.status >= 300 && response.status < 400 ||
+      response.headers.get('content-type')?.includes('text/html')) {
+    authProvider = 'cloudflare-access';
+    showLogin();
+    throw new Error('Your session ended. Sign in to continue.');
+  }
   const data = await response.json();
+  if (data.authProvider) authProvider = data.authProvider;
   if (!response.ok) {
     if (response.status === 401 && path !== '/api/login') showLogin();
     throw new Error(data.error || 'Could not save.');
@@ -100,7 +108,10 @@ function showLogin() {
   $('#app-view').hidden = true;
   $('#login-view').hidden = false;
   $('#task-list').replaceChildren();
-  $('#password').focus();
+  const access = authProvider === 'cloudflare-access';
+  $('#login-form').hidden = access;
+  $('#access-login').hidden = !access;
+  (access ? $('#access-login') : $('#password')).focus();
 }
 function queueWrite(action) {
   ++revision;
@@ -807,7 +818,7 @@ $('#login-form').addEventListener('submit', async event => {
   finally { button.disabled = false; }
 });
 $('#logout').addEventListener('click', async () => {
-  try { await writeQueue; await api('/api/logout', { method: 'POST' }); showLogin(); } catch (cause) { error(cause.message); }
+  try { await writeQueue; const result = await api('/api/logout', { method: 'POST' }); if (result.logoutUrl === '/cdn-cgi/access/logout') location.assign(result.logoutUrl); else showLogin(); } catch (cause) { error(cause.message); }
 });
 
 document.addEventListener('keydown', event => {
@@ -864,7 +875,7 @@ window.addEventListener('focus', refresh);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 try {
   const session = await api('/api/session');
-  $('#logout').hidden = !session.passwordRequired;
+  $('#logout').hidden = !session.passwordRequired && authProvider !== 'cloudflare-access';
   if (session.authenticated) { signedIn = true; $('#app-view').hidden = false; await refresh(); }
   else showLogin();
 } catch (cause) { error(`${cause.message} Reload to reconnect.`); }
