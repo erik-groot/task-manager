@@ -7,12 +7,20 @@ This is a responsive web app starter. It is not a native App Store app. It requi
 ## Included
 
 - Create, edit, complete, reopen, and delete tasks.
-- Notes, due dates, high priority, search, and views for active, due, and completed tasks.
-- Responsive layouts for desktop, tablet, and phone.
+- Today, Tomorrow, This week (Friday), Next week (Friday), Later, and Backlog.
+- Customer selection with `@`, Low/Medium/High priority with `!`, and Task/Waiting for with `#`.
+- Group by customer, priority, or type; search across task text and customers.
+- Move tasks with `1`–`4` and review every undated task in a keyboard-driven popup.
+- Frost by default, plus Clear and Midnight, with Apple's SF system typography and a self-hosted Inter fallback for other platforms.
+- Review supports editable customer/priority/type fields, Back/Undo, and keyboard shortcuts without leaving the queue.
+- Swipe, long-press, or open a task's row menu to schedule it; quick moves include Undo.
+- Dedicated phone list navigation, bottom controls, search, and capture/review sheets.
 - One SQLite database on the Mac mini, retained across restarts.
 - Optional passphrase on localhost; required for direct network access.
 - Automatic refresh every 15 seconds while the page is visible.
 - No external runtime packages or cloud services required for local use.
+
+See [the task workflow and shortcuts](docs/workflow.md), [design screenshots](docs/designs.md), and [the design research](docs/design-research.md).
 
 ## Start on your Mac mini
 
@@ -42,6 +50,7 @@ On iPhone and iPad, open the app in Safari and choose **Share → Add to Home Sc
 ```sh
 npm run dev    # Restart the server when source files change; reload Safari for frontend edits
 npm test       # API, validation, authentication, and database persistence tests
+npm run test:browser  # Isolated browser checks; requires Chromium or CHROMIUM=/path/to/chrome
 ```
 
 ```text
@@ -49,6 +58,7 @@ src/index.js       Startup and network configuration
 src/server.js      HTTP API, sessions, and static assets
 src/store.js       SQLite persistence
 public/           Browser UI
+scripts/          Isolated browser checks and screenshot capture
 test/             Integration tests using Node's built-in test runner
 docs/             Device setup and development roadmap
 ```
@@ -60,5 +70,7 @@ Copy `.env.example` to `.env` to configure the server. `HOST` defaults to `127.0
 ## Current scope
 
 This starter has a single shared workspace and passphrase. Sessions last up to seven days and are cleared when the server restarts. Simultaneous edits to the same task use the last saved update. Server-side date values are calendar dates; the Today view follows each device's local date. A Mac mini sleeping, restarting, losing power, or losing its connection makes the app unavailable until it returns.
+
+The new glass layouts are tested in Chromium at desktop and phone sizes, including native touch-event gestures and queued assign/undo/reassign operations. Apple devices use their installed system font; Apple font files are not distributed with the app. Native Safari and physical Apple-device testing remain to be done. This is a web implementation inspired by Liquid Glass, not an Apple native material. Hosting on Cloudflare has not yet been implemented.
 
 See [the roadmap](docs/roadmap.md) for possible next steps.

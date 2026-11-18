@@ -19,6 +19,16 @@ export function openStore(path) {
       updatedAt TEXT NOT NULL
     );
   `);
+  // Upgrade existing databases in place without changing IDs, dates, or notes.
+  const columns = new Set(db.prepare('PRAGMA table_info(tasks)').all().map(column => column.name));
+  for (const [column, definition] of [
+    ['section', "TEXT NOT NULL DEFAULT 'backlog'"],
+    ['customer', "TEXT NOT NULL DEFAULT ''"],
+    ['type', "TEXT NOT NULL DEFAULT 'task'"],
+  ]) {
+    if (!columns.has(column)) db.exec(`ALTER TABLE tasks ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec("UPDATE tasks SET priority = 'medium' WHERE priority = 'normal'");
   const decode = row => row ? { ...row, completed: Boolean(row.completed) } : null;
   const find = id => decode(db.prepare('SELECT * FROM tasks WHERE id = ?').get(id));
   return {
@@ -26,9 +36,9 @@ export function openStore(path) {
     find,
     create(fields) {
       const now = new Date().toISOString();
-      const task = { id: randomUUID(), ...fields, completed: false, createdAt: now, updatedAt: now };
-      db.prepare('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-        task.id, task.title, task.notes, task.dueDate, task.priority, 0, now, now,
+      const task = { id: randomUUID(), section: 'backlog', customer: '', type: 'task', ...fields, completed: false, createdAt: now, updatedAt: now };
+      db.prepare('INSERT INTO tasks (id, title, notes, dueDate, priority, completed, createdAt, updatedAt, section, customer, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        task.id, task.title, task.notes, task.dueDate, task.priority, 0, now, now, task.section, task.customer, task.type,
       );
       return task;
     },
@@ -36,8 +46,8 @@ export function openStore(path) {
       const previous = find(id);
       if (!previous) return null;
       const task = { ...previous, ...fields, updatedAt: new Date().toISOString() };
-      db.prepare('UPDATE tasks SET title=?, notes=?, dueDate=?, priority=?, completed=?, updatedAt=? WHERE id=?')
-        .run(task.title, task.notes, task.dueDate, task.priority, Number(task.completed), task.updatedAt, id);
+      db.prepare('UPDATE tasks SET title=?, notes=?, dueDate=?, priority=?, completed=?, updatedAt=?, section=?, customer=?, type=? WHERE id=?')
+        .run(task.title, task.notes, task.dueDate, task.priority, Number(task.completed), task.updatedAt, task.section, task.customer, task.type, id);
       return task;
     },
     remove: id => db.prepare('DELETE FROM tasks WHERE id=?').run(id).changes > 0,

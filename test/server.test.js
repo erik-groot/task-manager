@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { createApp } from '../src/server.js';
+import { DatabaseSync } from 'node:sqlite';
 
 async function start(databasePath, password = '') {
   const server = createApp({ databasePath, password });
@@ -91,4 +92,55 @@ test('the UI is served with security headers, unknown paths and cross-site traff
     assert.equal((await app.request('/api/tasks', 'GET', undefined, { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
     assert.equal((await app.request('/api/tasks', 'POST', { title: 'blocked' }, { Origin: 'https://elsewhere.example' })).status, 403);
   } finally { await app.close(); }
+});
+
+test('planning metadata is persisted and changing to an undated section clears the date', async () => {
+  const app = await start(':memory:');
+  try {
+    const response = await app.request('/api/tasks', 'POST', {
+      title: 'Review proposal', section: 'this-week', dueDate: '2026-11-20', customer: '  Acme  ', priority: 'low', type: 'waiting',
+    });
+    assert.equal(response.status, 201);
+    const task = await response.json();
+    assert.equal(task.customer, 'Acme');
+    assert.equal(task.type, 'waiting');
+    assert.equal(task.priority, 'low');
+    assert.equal(task.section, 'this-week');
+    const moved = await app.request(`/api/tasks/${task.id}`, 'PATCH', { section: 'later' });
+    assert.equal(moved.status, 200);
+    assert.equal((await moved.json()).dueDate, '');
+    const [persisted] = await (await app.request('/api/tasks')).json();
+    assert.equal(persisted.customer, 'Acme');
+    assert.equal(persisted.section, 'later');
+    assert.equal(persisted.dueDate, '');
+    for (const fields of [{ section: 'tomorrow' }, { section: 'unknown' }, { type: 'other' }, { priority: 'urgent' }, { customer: 'a'.repeat(101) }, { section: 'backlog', dueDate: '2026-11-20' }]) {
+      assert.equal((await app.request(`/api/tasks/${task.id}`, 'PATCH', fields)).status, 400);
+    }
+    for (const priority of ['low', 'medium', 'high']) assert.equal((await app.request(`/api/tasks/${task.id}`, 'PATCH', { priority })).status, 200);
+  } finally { await app.close(); }
+});
+
+test('existing databases upgrade without losing tasks, dates, IDs, or completion', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'task-migration-'));
+  const database = join(directory, 'old.sqlite');
+  const old = new DatabaseSync(database);
+  old.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', dueDate TEXT NOT NULL DEFAULT '', priority TEXT NOT NULL DEFAULT 'normal', completed INTEGER NOT NULL DEFAULT 0, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`);
+  old.prepare('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('legacy', 'Existing task', 'Keep notes', '2026-11-20', 'normal', 1, '2026-11-01', '2026-11-02');
+  old.close();
+  let app = await start(database);
+  try {
+    let tasks = await (await app.request('/api/tasks')).json();
+    assert.equal(tasks[0].id, 'legacy');
+    assert.equal(tasks[0].notes, 'Keep notes');
+    assert.equal(tasks[0].dueDate, '2026-11-20');
+    assert.equal(tasks[0].priority, 'medium');
+    assert.equal(tasks[0].completed, true);
+    assert.equal(tasks[0].customer, '');
+    assert.equal(tasks[0].type, 'task');
+    await app.close();
+    app = await start(database);
+    tasks = await (await app.request('/api/tasks')).json();
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].priority, 'medium');
+  } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
 });
