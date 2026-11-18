@@ -2,10 +2,12 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { openStore } from './store.js';
+import { SECTIONS, PRIORITIES } from '../public/planning.js';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/planning.js', ['planning.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/icon.svg', ['icon.svg', 'image/svg+xml']],
@@ -55,8 +57,29 @@ function validateFields(body, partial = false) {
     throw new RequestError(400, 'Choose a valid due date.');
   }
   if (!partial || 'priority' in body) {
-    fields.priority = body.priority ?? 'normal';
-    if (!['normal', 'high'].includes(fields.priority)) throw new RequestError(400, 'Invalid priority.');
+    fields.priority = body.priority === 'normal' ? 'medium' : body.priority ?? 'medium';
+    if (!PRIORITIES.includes(fields.priority)) throw new RequestError(400, 'Invalid priority.');
+  }
+  if (!partial || 'section' in body) {
+    fields.section = body.section ?? 'backlog';
+    if (!SECTIONS.includes(fields.section)) throw new RequestError(400, 'Invalid section.');
+  }
+  if ('section' in body && ['later', 'backlog'].includes(fields.section)) {
+    if (fields.dueDate) throw new RequestError(400, 'Later and Backlog do not have a date.');
+    fields.dueDate = '';
+  }
+  if ('section' in body && !['later', 'backlog'].includes(fields.section) && !fields.dueDate) {
+    throw new RequestError(400, 'A scheduled section needs a due date.');
+  }
+  if (!partial || 'customer' in body) {
+    if (body.customer !== undefined && (typeof body.customer !== 'string' || body.customer.length > 100)) {
+      throw new RequestError(400, 'Customer must be at most 100 characters.');
+    }
+    fields.customer = (body.customer ?? '').trim();
+  }
+  if (!partial || 'type' in body) {
+    fields.type = body.type ?? 'task';
+    if (!['task', 'waiting'].includes(fields.type)) throw new RequestError(400, 'Invalid type.');
   }
   if ('completed' in body) {
     if (typeof body.completed !== 'boolean') throw new RequestError(400, 'Invalid completion status.');
