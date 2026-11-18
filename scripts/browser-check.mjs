@@ -30,14 +30,20 @@ try {
   await rm(directory, { recursive:true, force:true, maxRetries:10 }); throw error;
 }
 const screenshotDirectory = process.env.SCREENSHOT_DIR ? resolve(process.env.SCREENSHOT_DIR) : null;
-const target = await (await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, { method: 'PUT' })).json();
+const target = await (await fetch(`http://127.0.0.1:${debugPort}/json/new?${base}`, { method: 'PUT' })).json();
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise(resolve => ws.addEventListener('open', resolve, { once: true }));
 let id = 0;
 const pending = new Map();
 const errors = [];
+const networkErrors = [];
+const networkRequests = new Map();
+const navigations = [];
 ws.addEventListener('message', event => {
   const result = JSON.parse(event.data);
+  if (result.method === 'Network.requestWillBeSent') networkRequests.set(result.params.requestId,result.params.request.url);
+  if (result.method === 'Page.frameNavigated') navigations.push(result.params.frame.url);
+  if (result.method === 'Network.loadingFailed') networkErrors.push({...result.params,url:networkRequests.get(result.params.requestId)});
   if (result.method === 'Runtime.exceptionThrown') errors.push(result.params.exceptionDetails.exception?.description || result.params.exceptionDetails.text);
   if (!result.id) return;
   const handlers = pending.get(result.id); pending.delete(result.id);
@@ -71,9 +77,10 @@ async function screenshot(name) { if (!screenshotDirectory) return; await mkdir(
 try {
   await cdp('Runtime.enable');
   await cdp('Page.enable');
+  await cdp('Network.enable');
   await cdp('Emulation.setTimezoneOverride', { timezoneId: 'Europe/Amsterdam' });
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-  await clean(); await reload();
+  await wait(`document.readyState === 'complete' && document.querySelector('#app-view')?.hidden === false && document.querySelector('#connection')?.classList.contains('online')`);
   await click('[data-section="backlog"]');
   await input('#quick-title', 'Review proposal @Acme');
   await wait(`!document.querySelector('#suggestions').hidden`);
@@ -155,7 +162,7 @@ try {
     assert.deepEqual(headings,expected);
   }
   await evaluate(`document.querySelector('#group-by').value='customer';document.querySelector('#group-by').dispatchEvent(new Event('change'))`);
-  
+
   for (const theme of ['clear', 'frost', 'midnight']) {
     await click(`.appearance [data-theme="${theme}"]`);
     await screenshot('glass-' + theme);
@@ -180,4 +187,4 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log('Browser checks passed: @/!/# menus, modal positioning, title typing, 1–4 moves, rapid review, fixed-date edits, three themes, reduced transparency, and phone layout.');
-} catch (cause) { console.log('UI state', await evaluate(`JSON.stringify({errors:document.querySelector('#notice').textContent,view:document.querySelector('#view-title').textContent,title:document.querySelector('#quick-title').value,menu:document.querySelector('#suggestions').hidden,tokens:document.querySelector('#quick-tokens').textContent,list:document.querySelector('#task-list').textContent})`)); console.log('Runtime errors',errors); console.log('Tasks',await tasks()); throw cause; } finally { ws.close(); chrome.kill(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await new Promise(resolve => { if (chrome.exitCode !== null || chrome.signalCode) resolve(); else chrome.once('exit',resolve); }); await rm(directory,{recursive:true,force:true,maxRetries:10}); }
+} catch (cause) { console.log('UI state', await evaluate(`JSON.stringify({errors:document.querySelector('#notice').textContent,view:document.querySelector('#view-title').textContent,title:document.querySelector('#quick-title').value,menu:document.querySelector('#suggestions').hidden,tokens:document.querySelector('#quick-tokens').textContent,list:document.querySelector('#task-list').textContent})`)); console.log('Runtime errors',errors); console.log('Network errors',networkErrors); console.log('Navigations',navigations); console.log('Tasks',await tasks()); throw cause; } finally { ws.close(); chrome.kill(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await new Promise(resolve => { if (chrome.exitCode !== null || chrome.signalCode) resolve(); else chrome.once('exit',resolve); }); await rm(directory,{recursive:true,force:true,maxRetries:10}); }
