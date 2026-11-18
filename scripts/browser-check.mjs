@@ -13,18 +13,21 @@ const server = createApp({ databasePath: join(directory, 'tasks.sqlite') });
 server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const base = `http://127.0.0.1:${server.address().port}`;
-const chrome = spawn(process.env.CHROMIUM || 'chromium', ['--headless', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${join(directory, 'chrome')}`, 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(process.env.CHROMIUM || 'chromium', ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${join(directory, 'chrome')}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 let chromeError;
+let chromeLog = '';
+chrome.stderr.on('data', chunk => { chromeLog = (chromeLog + chunk.toString()).slice(-8192); });
 chrome.on('error', error => { chromeError = error; });
 let debugPort;
 try {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  const startupDeadline = Date.now() + 30000;
+  while (Date.now() < startupDeadline) {
     if (chromeError) throw chromeError;
     if (chrome.exitCode !== null) throw new Error('Chromium exited before startup. Set CHROMIUM to your browser executable.');
     try { debugPort = (await readFile(join(directory, 'chrome', 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; } catch {}
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  if (!debugPort) throw new Error('Chromium startup timed out.');
+  if (!debugPort) throw new Error(`Chromium startup timed out. ${chromeLog}`);
 } catch (error) {
   chrome.kill(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   await rm(directory, { recursive:true, force:true, maxRetries:10 }); throw error;
