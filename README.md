@@ -24,7 +24,7 @@ cd task-manager
 npm start
 ```
 
-The repository is private: cloning requires your GitHub credentials. If you use the GitHub CLI, run `gh auth login` and `gh repo clone erik-groot/task-manager` instead.
+If GitHub asks you to authenticate, use your GitHub credentials. If you use the GitHub CLI, run `gh auth login` and `gh repo clone erik-groot/task-manager` instead.
 
 Open [http://localhost:3000](http://localhost:3000). No `npm install` step is needed.
 
