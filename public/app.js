@@ -20,6 +20,7 @@ let toastTimer;
 let tokenMenu = null;
 let quickFields = {};
 const taskVersions = new Map();
+const confirmedTasks = new Map();
 
 function element(tag, className, text) {
   const result = document.createElement(tag);
@@ -68,6 +69,7 @@ function showLogin() {
   signedIn = false;
   ++revision;
   tasks = [];
+  confirmedTasks.clear();
   review = null;
   selectedId = null;
   $('#task-dialog').close();
@@ -207,6 +209,8 @@ async function refresh() {
     const result = await api('/api/tasks');
     if (!signedIn || revision !== version) return;
     tasks = result;
+    confirmedTasks.clear();
+    for (const task of result) confirmedTasks.set(task.id, task);
     render();
     renderReview();
     connection('online');
@@ -223,10 +227,11 @@ function patchTask(id, fields, { onError, message } = {}) {
   if (message) toast(message);
   const saved = queueWrite(() => api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(fields) }));
   return saved.then(task => {
+    confirmedTasks.set(id, task);
     if (taskVersions.get(id) === version) tasks = tasks.map(item => item.id === id ? task : item);
     render();
   }).catch(cause => {
-    if (taskVersions.get(id) === version) tasks = tasks.map(item => item.id === id ? previous : item);
+    if (taskVersions.get(id) === version) tasks = tasks.map(item => item.id === id ? confirmedTasks.get(id) ?? previous : item);
     onError?.(id);
     error(`${previous.title}: ${cause.message}`);
     render();
@@ -282,6 +287,7 @@ async function saveEditor() {
     fields.dueDate = oldTask && $('#task-section').dataset.changed !== 'true' ? oldTask.dueDate : dueFor(fields.section);
     if (oldTask && $('#task-section').dataset.changed !== 'true') delete fields.section;
     const task = await queueWrite(() => api(editingId ? `/api/tasks/${editingId}` : '/api/tasks', { method: editingId ? 'PATCH' : 'POST', body: JSON.stringify(fields) }));
+    confirmedTasks.set(task.id, task);
     tasks = editingId ? tasks.map(item => item.id === editingId ? task : item) : [task, ...tasks];
     if (!editingId) { $('#quick-title').value = ''; quickFields = {}; renderQuickTokens(); }
     $('#task-dialog').close();
@@ -502,6 +508,7 @@ $('#quick-form').addEventListener('submit', async event => {
   const section = SECTIONS.includes(view) ? view : 'backlog';
   try {
     const task = await queueWrite(() => api('/api/tasks', { method: 'POST', body: JSON.stringify({ title, ...scheduledFields(section), ...quickFields }) }));
+    confirmedTasks.set(task.id, task);
     tasks.unshift(task);
     $('#quick-title').value = '';
     quickFields = {};

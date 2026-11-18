@@ -73,7 +73,12 @@ async function create(fields) { const r = await fetch(base + '/api/tasks', { met
 async function clean() { for (const task of await tasks()) await fetch(base + '/api/tasks/' + task.id, { method: 'DELETE' }); }
 let navigation = 0;
 async function reload() { const query='?check='+ ++navigation; await cdp('Page.navigate', {url:base+'/'+query}); await wait(`location.search === '${query}' && document.readyState === 'complete' && document.querySelector('#app-view')?.hidden === false && document.querySelector('#connection')?.classList.contains('online')`); }
-async function screenshot(name) { if (!screenshotDirectory) return; await mkdir(screenshotDirectory, {recursive:true}); await writeFile(join(screenshotDirectory, name + '.png'), Buffer.from((await cdp('Page.captureScreenshot', { format: 'png' })).data, 'base64')); }
+async function screenshot(name, selector) {
+  if (!screenshotDirectory) return;
+  await mkdir(screenshotDirectory, {recursive:true});
+  const clip = selector ? await evaluate(`{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();({x:Math.max(0,r.x-16),y:Math.max(0,r.y-16),width:r.width+32,height:r.height+32,scale:1})}`) : undefined;
+  await writeFile(join(screenshotDirectory, name + '.png'), Buffer.from((await cdp('Page.captureScreenshot', { format:'png', ...(clip ? {clip} : {}) })).data,'base64'));
+}
 try {
   await cdp('Runtime.enable');
   await cdp('Page.enable');
@@ -133,6 +138,19 @@ try {
   await wait(`document.querySelector('#review-title').textContent === 'All reviewed'`);
   assert.equal((await tasks()).find(task=>task.id===failedTask.id).section,'next-week');
   await click('#review-done');
+  // Multiple failed moves of the same task restore the last server-confirmed state.
+  await clean();
+  const repeated = await create({title:'Repeated move',section:'backlog'});
+  await reload(); await click('[data-section="all"]');
+  await evaluate(`document.querySelector('.task').focus()`);
+  await cdp('Network.setBlockedURLs',{urls:[base + '/api/tasks/*']});
+  await press('1','Digit1'); await press('4','Digit4');
+  await wait(`document.querySelector('#connection').classList.contains('offline') && document.querySelector('#review-count').textContent === '1'`);
+  await cdp('Network.setBlockedURLs',{urls:[]});
+  await click('#review-start');
+  await wait(`document.querySelector('#review-title').textContent === 'Repeated move'`);
+  assert.equal((await tasks()).find(task=>task.id===repeated.id).section,'backlog');
+  await click('#review-close');
   // Saving an edit must preserve an existing fixed due date.
   const older = await create({ title: 'Keep fixed date', section: 'today', dueDate: '2026-01-01' });
   await reload(); await evaluate(`document.querySelector('[data-task-id="${older.id}"] .task-main').click()`);
@@ -172,7 +190,7 @@ try {
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('.app-window')).backdropFilter`), 'none');
   await cdp('Emulation.setEmulatedMedia', { features: [] });
   await click('.appearance [data-theme="clear"]');
-  await click('#review-start'); await screenshot('glass-review'); await click('#review-close');
+  await click('#review-start'); await screenshot('glass-review','#review-dialog'); await click('#review-close');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`), true);
   assert.ok(await evaluate(`getComputedStyle(document.querySelector('.mobile-completed')).display !== 'none'`));
